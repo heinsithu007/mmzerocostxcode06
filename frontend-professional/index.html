@@ -1140,16 +1140,79 @@ $ █
 
     <script>
         // Configuration
-        const API_BASE_URL = 'https://work-1-ghtpeisgtbqwlbdq.prod-runtime.all-hands.dev';
+        const API_BASE_URL = window.location.origin;
         
         // State management
         let currentSession = null;
         let activePanel = 'chat';
+        let authToken = null;
+        let currentUser = null;
+
+        // Authentication functions
+        function getAuthToken() {
+            return authToken || localStorage.getItem('auth_token');
+        }
+
+        function setAuthToken(token) {
+            authToken = token;
+            localStorage.setItem('auth_token', token);
+        }
+
+        function clearAuth() {
+            authToken = null;
+            currentUser = null;
+            localStorage.removeItem('auth_token');
+        }
+
+        async function loginUser(username, password) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/v3/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        username: username,
+                        password: password
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    setAuthToken(data.access_token);
+                    currentUser = data.user;
+                    return { success: true, user: data.user };
+                } else {
+                    return { success: false, error: data.detail };
+                }
+            } catch (error) {
+                return { success: false, error: 'Login failed' };
+            }
+        }
+
+        async function autoLogin() {
+            // Auto-login with demo credentials for demo purposes
+            const result = await loginUser('demo', 'demo123');
+            if (result.success) {
+                console.log('Auto-logged in as demo user');
+                updateUserInfo(result.user);
+            }
+        }
+
+        function updateUserInfo(user) {
+            // Update UI with user information
+            const userElements = document.querySelectorAll('.user-name');
+            userElements.forEach(el => el.textContent = user.username);
+            
+            const emailElements = document.querySelectorAll('.user-email');
+            emailElements.forEach(el => el.textContent = user.email);
+        }
         
         // Initialize application
         document.addEventListener('DOMContentLoaded', function() {
             initializeApp();
             setupEventListeners();
+            autoLogin();
             checkSystemStatus();
         });
         
@@ -1298,14 +1361,17 @@ $ █
             addTypingIndicator();
             
             try {
-                const response = await fetch(`${API_BASE_URL}/api/v3/chat`, {
+                const response = await fetch(`${API_BASE_URL}/api/v3/ai/generate`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${getAuthToken()}`
                     },
                     body: JSON.stringify({
-                        message: message,
-                        execution_mode: 'hybrid'
+                        prompt: message,
+                        task_type: 'generate',
+                        language: 'python',
+                        context: ''
                     })
                 });
                 
@@ -1314,13 +1380,13 @@ $ █
                 // Remove typing indicator
                 removeTypingIndicator();
                 
-                if (data.success) {
-                    addMessageToChat('assistant', data.data.response);
-                    if (data.session_id) {
-                        currentSession = data.session_id;
+                if (response.ok && data.content) {
+                    addMessageToChat('assistant', data.content);
+                    if (data.model) {
+                        console.log(`Response from ${data.model}`);
                     }
                 } else {
-                    addMessageToChat('error', `Error: ${data.error || 'Unknown error'}`);
+                    addMessageToChat('error', `Error: ${data.error || data.detail || 'Unknown error'}`);
                 }
             } catch (error) {
                 removeTypingIndicator();
